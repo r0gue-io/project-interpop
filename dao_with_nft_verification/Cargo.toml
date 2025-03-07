@@ -1,0 +1,28 @@
+[package]
+authors = [ "[your_name] <[your_email]>" ]
+edition = "2021"
+name = "nft-verifier"
+version = "0.1.0"
+
+[dependencies]
+hex = { version = "0.4.3", default-features = false }
+ink = { git = "https://github.com/r0gue-io/ink", branch = "sub0", default-features = false }
+pop-api = { git = "https://github.com/r0gue-io/pop-node", branch = "daan/sub0", default-features = false, features = [ "fungibles", "messaging", "nonfungibles" ] }
+sp-core = { version = "32.0.0", default-features = false }
+
+[dev-dependencies]
+ink_e2e = { version = "5.0.0" }
+
+[lib]
+path = "lib.rs"
+
+[features]
+default = [ "std" ]
+e2e-tests = [  ]
+ink-as-dependency = [  ]
+std = [
+	"hex/std",
+	"ink/std",
+	"pop-api/std",
+	"sp-core/std",
+]
