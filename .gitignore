@@ -1,0 +1,20 @@
+# Editor and IDE files
+.vscode/
+.idea/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Build and dependency directories
+**/target/
+**/node_modules
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*~
+
+# Environment and configuration files
+.env*
