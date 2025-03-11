@@ -1,5 +1,13 @@
 # Simple Example For Executing and Reading from Hydra
 
+## Setup
+- Install Pop CLI, use the `interpop` branch. This includes a manual ISMP relayer (self-relaying)
+```
+cargo install --git https://github.com/r0gue-io/pop-cli --branch interpop
+```
+
+## Steps
+
 This is a guide to execute a smart contract that generically uses Hydration. It supports an arbitrary encoded call data to perform a `Transact` on Hydration.
 Additionally, it allows querying an arbitrary storage key from the contract.
 
@@ -38,3 +46,14 @@ The smart contract on Pop will control an account on Hydration which will requir
   - Use the ISMP height from step 6
 
 ![query storage](./images/query-storage.png "query storage")
+
+8. Get ISMP commitment from event
+
+   ![get ISMP commitment](./images/commitment.png "get ISMP commitment")
+
+9. Self relay the ISMP data to Pop (make sure you are using pop cli on `interpop` branch).
+```
+# Only Pop's rpc1 and rpc3 nodes support ISMP, right now.
+pop relay get --source wss://rpc1.paseo.popnetwork.xyz --dest wss://paseo-rpc.play.hydration.cloud --commitment <COMMITMENT FROM STEP 8>
+```
+![pop cli relay](./images/pop-cli-relay.png "pop cli relay output")
