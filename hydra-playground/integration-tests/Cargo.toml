@@ -1,0 +1,108 @@
+[package]
+name = "integration-tests"
+version = "0.1.0"
+authors = ["[your_name] <[your_email]>"]
+edition = "2021"
+
+[dependencies]
+codec = { package = "parity-scale-codec", version = "3.6.12", default-features = false, features = ["derive"] }
+tracing-subscriber = { version = "0.3.18", default-features = false, features = ["env-filter", "fmt", "std", "tracing-log"] }
+
+# Substrate
+frame-support = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2412", default-features = false }
+pallet-assets = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2412", default-features = false }
+pallet-balances = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2412", default-features = false }
+pallet-message-queue = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2412", default-features = false }
+sp-authority-discovery = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2412", default-features = false }
+sp-consensus-aura = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2412", default-features = false }
+sp-consensus-babe = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2412", default-features = false }
+sp-consensus-beefy = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2412", default-features = false }
+sp-consensus-grandpa = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2412", default-features = false }
+sp-core = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2412", default-features = false }
+sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2412", default-features = false }
+
+# Polkadot
+pallet-xcm = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2412", default-features = false }
+polkadot-primitives = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2412", default-features = false }
+polkadot-runtime-parachains = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2412", default-features = false }
+xcm = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2412", package = "staging-xcm", default-features = false }
+xcm-executor = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2412", package = "staging-xcm-executor", default-features = false }
+
+# Cumulus
+asset-test-utils = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2412", default-features = false }
+cumulus-primitives-core = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2412", default-features = false }
+emulated-integration-tests-common = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2412", default-features = false }
+
+# Runtimes
+asset-hub-paseo-runtime = { git = "https://github.com/paseo-network/runtimes", default-features = false, tag = "v1.3.4", optional = true }
+paseo-runtime = { git = "https://github.com/paseo-network/runtimes", default-features = false, tag = "v1.3.4", optional = true }
+paseo-runtime-constants = { git = "https://github.com/paseo-network/runtimes", default-features = false, tag = "v1.3.4", optional = true }
+
+pop-runtime-common = { git = "https://github.com/r0gue-io/pop-node", branch = "develop", default-features = true }
+pop-runtime-testnet = { git = "https://github.com/r0gue-io/pop-node", branch = "develop", default-features = true }
+
+hydradx-runtime = { git = "https://github.com/galacticcouncil/hydration-node", default-features = false }
+
+[features]
+default = [ "std" ]
+paseo = [
+    "asset-hub-paseo-runtime",
+    "paseo-runtime",
+    "paseo-runtime-constants",
+]
+runtime-benchmarks = [
+    "asset-hub-paseo-runtime?/runtime-benchmarks",
+    "cumulus-primitives-core/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "hydradx-runtime/runtime-benchmarks",
+    "pallet-assets/runtime-benchmarks",
+    "pallet-balances/runtime-benchmarks",
+    "pallet-message-queue/runtime-benchmarks",
+    "pallet-xcm/runtime-benchmarks",
+    "paseo-runtime?/runtime-benchmarks",
+    "polkadot-primitives/runtime-benchmarks",
+    "polkadot-runtime-parachains/runtime-benchmarks",
+    "pop-runtime-common/runtime-benchmarks",
+    "pop-runtime-testnet/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+    "xcm-executor/runtime-benchmarks",
+]
+std = [
+    "asset-hub-paseo-runtime?/std",
+    "asset-test-utils/std",
+    "codec/std",
+    "cumulus-primitives-core/std",
+    "frame-support/std",
+    "hydradx-runtime/std",
+    "pallet-assets/std",
+    "pallet-balances/std",
+    "pallet-message-queue/std",
+    "pallet-xcm/std",
+    "paseo-runtime-constants?/std",
+    "paseo-runtime?/std",
+    "polkadot-primitives/std",
+    "polkadot-runtime-parachains/std",
+    "pop-runtime-common/std",
+    "pop-runtime-testnet/std",
+    "sp-authority-discovery/std",
+    "sp-consensus-aura/std",
+    "sp-consensus-babe/std",
+    "sp-consensus-beefy/std",
+    "sp-consensus-grandpa/std",
+    "sp-core/std",
+    "sp-runtime/std",
+    "tracing-subscriber/std",
+    "xcm-executor/std",
+    "xcm/std",
+]
+try-runtime = [
+    "asset-hub-paseo-runtime?/try-runtime",
+    "frame-support/try-runtime",
+    "hydradx-runtime/try-runtime",
+    "pallet-assets/try-runtime",
+    "pallet-balances/std",
+    "pallet-message-queue/try-runtime",
+    "paseo-runtime?/try-runtime",
+    "pop-runtime-testnet/try-runtime",
+    "sp-runtime/try-runtime",
+]
