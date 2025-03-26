@@ -9,12 +9,6 @@
     },
     "pop": {
       "metadata": ".papi/metadata/pop.scale"
-    },
-    "pop_tmp": {
-      "metadata": ".papi/metadata/pop_tmp.scale"
-    },
-    "sdk_tmp": {
-      "metadata": ".papi/metadata/sdk_tmp.scale"
     }
   },
   "ink": {

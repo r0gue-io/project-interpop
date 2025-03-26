@@ -113,7 +113,7 @@ mod execute_on_hydra {
         }
 
         #[ink(message)]
-        pub fn create_pop_to_hydra_xcm(
+        pub fn fund_contract_on_hydra(
             &mut self,
             amount: u128,
             ref_time: u64,
