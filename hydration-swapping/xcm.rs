@@ -22,9 +22,19 @@ pub(crate) fn native_asset(amount: u128) -> Assets {
     (Location::parent(), amount).into()
 }
 
+fn local_account(account: AccountId) -> Location {
+    Location::new(
+        0,
+        AccountId32 {
+            network: None,
+            id: account.0,
+        },
+    )
+}
+
 pub(crate) struct XcmMessageBuilder {
     dest_chain: Option<u32>,
-    source_chain: Option<u32>,
+    current_hop: Option<u32>,
     weight_limit: WeightLimit,
 }
 
@@ -32,24 +42,24 @@ impl Default for XcmMessageBuilder {
     fn default() -> Self {
         Self {
             dest_chain: None,
-            source_chain: None,
+            current_hop: None,
             weight_limit: Limited(Weight::MAX),
         }
     }
 }
 
 impl XcmMessageBuilder {
-    pub fn from(&mut self, source_chain: u32) -> &mut Self {
-        self.source_chain = Some(source_chain);
+    pub fn set_next_hop(&mut self, current_hop: u32) -> &mut Self {
+        self.current_hop = Some(current_hop);
         self
     }
 
-    pub fn to(&mut self, dest_chain: u32) -> &mut Self {
+    pub fn send_to(&mut self, dest_chain: u32) -> &mut Self {
         self.dest_chain = Some(dest_chain);
         self
     }
 
-    pub fn max_weight_limit(&mut self) -> &mut Self {
+    pub fn set_max_weight_limit(&mut self) -> &mut Self {
         self.weight_limit = Limited(Weight::MAX);
         self
     }
@@ -62,17 +72,7 @@ impl XcmMessageBuilder {
     ) -> Xcm<()> {
         Xcm::builder_unsafe()
             .buy_execution(asset, WeightLimit::Unlimited)
-            .deposit_reserve_asset(
-                All.into(),
-                Location::new(
-                    0,
-                    AccountId32 {
-                        network: None,
-                        id: beneficiary.0,
-                    },
-                ),
-                xcm,
-            )
+            .deposit_reserve_asset(All.into(), local_account(beneficiary), xcm)
             .build()
     }
 
@@ -82,6 +82,7 @@ impl XcmMessageBuilder {
         amount: u128,
         xcm: Xcm<()>,
     ) -> Xcm<()> {
+        let beneficiary = hashed_account(self.current_hop(), beneficiary);
         debug_println!(
             "xcm::reserve_transfer_para_to_para beneficiary={:?}, amount={:?}",
             beneficiary,
@@ -110,7 +111,7 @@ impl XcmMessageBuilder {
         let dest = self.dest();
         let context = Junctions::from([
             Junction::GlobalConsensus(NetworkId::Polkadot),
-            Junction::Parachain(self.source_chain.unwrap_or_default()),
+            Junction::Parachain(self.current_hop()),
         ]);
         let fees = assets
             .get(0)
@@ -120,44 +121,27 @@ impl XcmMessageBuilder {
             .expect("should reanchor");
         let give: AssetFilter = Definite(give.into());
         let want = want.into();
-        let beneficiary = Location::new(
-            0,
-            Junctions::from([AccountId32 {
-                id: hashed_account(self.source_chain.unwrap_or_default(), beneficiary).0,
-                network: None,
-            }]),
-        );
 
-        let xcm = Xcm([
-            BuyExecution {
-                fees,
-                weight_limit: self.weight_limit.clone(),
-            },
-            ExchangeAsset {
-                give,
-                want,
-                maximal: is_sell,
-            },
-            DepositAsset {
-                assets: Wild(AllCounted(1)),
-                beneficiary,
-            },
-        ]
-        .to_vec());
-        // executed on local (acala)
-        Xcm([
-            SetFeesMode { jit_withdraw: true },
-            TransferReserveAsset { assets, dest, xcm },
-        ]
-        .to_vec())
+        Xcm::<()>::builder_unsafe()
+            .set_fees_mode(true)
+            .transfer_reserve_asset(
+                assets,
+                dest,
+                Xcm::builder_unsafe()
+                    .buy_execution(fees, self.weight_limit.clone())
+                    .exchange_asset(give, want, is_sell)
+                    .deposit_asset(Wild(AllCounted(1)), local_account(beneficiary))
+                    .build(),
+            )
+            .build()
     }
 
     fn dest(&self) -> Location {
         self.dest_chain.map(para).unwrap_or(Location::parent())
     }
 
-    fn source(&self) -> Location {
-        self.source_chain.map(para).unwrap_or(Location::parent())
+    fn current_hop(&self) -> u32 {
+        self.current_hop.unwrap()
     }
 }
 

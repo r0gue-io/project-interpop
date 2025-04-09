@@ -5,7 +5,7 @@ use ink::{
     env::debug_println,
     prelude::vec::Vec,
     xcm::{
-        v4::{Asset, Instruction, Xcm},
+        v4::{Asset, Xcm},
         VersionedXcm,
     },
 };
@@ -13,7 +13,7 @@ use pop_api::{
     messaging::{self as api, xcm::QueryId, MessageId},
     StatusCode,
 };
-use xcm::{XcmMessageBuilder, UNITS};
+use xcm::{XcmMessageBuilder, ASSET_HUB, HYDRATION, POP, UNITS};
 
 mod xcm;
 
@@ -21,10 +21,6 @@ pub type Result<T> = core::result::Result<T, StatusCode>;
 
 #[ink::contract]
 mod hydration_swapping {
-
-    use ink::xcm::v4::{Junction::AccountId32, WeightLimit, WildAsset::All};
-    use xcm::{hashed_account, para, ASSET_HUB, HYDRATION, POP};
-
     use super::*;
 
     #[ink(storage)]
@@ -61,56 +57,65 @@ mod hydration_swapping {
             ));
             let swap_on_hydration = XcmMessageBuilder::default().swap(account, give, want, false);
             let fund_hydration_xcm = XcmMessageBuilder::default()
-                .from(ASSET_HUB)
-                .to(HYDRATION)
-                .max_weight_limit()
+                .set_next_hop(ASSET_HUB)
+                .send_to(HYDRATION)
+                .set_max_weight_limit()
                 .reserve_transfer(account, amount, swap_on_hydration);
             let fund_asset_hub_xcm = XcmMessageBuilder::default()
-                .to(ASSET_HUB)
-                .max_weight_limit()
+                .set_next_hop(ASSET_HUB)
+                .set_max_weight_limit()
                 .reserve_transfer(account, amount, fund_hydration_xcm);
             api::xcm::execute(&VersionedXcm::V4(fund_asset_hub_xcm)).unwrap();
             Ok(None)
         }
 
         #[ink(message, payable)]
-        pub fn fund_parachain(&mut self, para_id: u32, instrs: Vec<Instruction<()>>) {
+        pub fn fund_parachain(&mut self, hop: u32, para_id: u32, xcm: Option<Xcm<()>>) {
             let account = self.env().account_id();
             let amount = self.env().transferred_value();
-            let fund_asset_hub_xcm = XcmMessageBuilder::default()
-                .to(para_id)
-                .max_weight_limit()
-                .reserve_transfer(account, amount, Xcm(instrs));
-            api::xcm::execute(&VersionedXcm::V4(fund_asset_hub_xcm)).unwrap();
+            let message = XcmMessageBuilder::default()
+                .set_next_hop(hop)
+                .send_to(para_id)
+                .set_max_weight_limit()
+                .reserve_transfer(account, amount, xcm.unwrap_or_default());
+            api::xcm::execute(&VersionedXcm::V4(message)).unwrap();
+        }
+
+        #[ink(message, payable)]
+        pub fn fund_hydration(&mut self) -> Result<()> {
+            let fund_hydration_xcm = XcmMessageBuilder::default()
+                .set_next_hop(ASSET_HUB)
+                .send_to(HYDRATION)
+                .set_max_weight_limit()
+                .reserve_transfer(
+                    self.env().account_id(),
+                    self.env().transferred_value(),
+                    Xcm::default(),
+                );
+            let message = XcmMessageBuilder::default()
+                .set_next_hop(POP)
+                .send_to(ASSET_HUB)
+                .set_max_weight_limit()
+                .reserve_transfer(
+                    self.env().account_id(),
+                    self.env().transferred_value(),
+                    fund_hydration_xcm,
+                );
+            api::xcm::execute(&VersionedXcm::V4(message)).unwrap();
+            Ok(())
         }
 
         #[ink(message, payable)]
         pub fn fund_asset_hub(&mut self) -> Result<()> {
-            let dest = para(ASSET_HUB);
-
-            // Reserve transfer specified assets to contract account on destination.
-            let asset: Asset = (Location::parent(), self.env().transferred_value()).into();
-            let beneficiary = hashed_account(POP, self.env().account_id());
-            let message: Xcm<()> = Xcm::builder_unsafe()
-                .withdraw_asset(asset.clone().into())
-                .initiate_reserve_withdraw(
-                    asset.clone().into(),
-                    dest.clone(),
-                    Xcm::builder_unsafe()
-                        .buy_execution(asset.clone(), WeightLimit::Unlimited)
-                        .deposit_asset(
-                            All.into(),
-                            Location::new(
-                                0,
-                                AccountId32 {
-                                    network: None,
-                                    id: beneficiary.0,
-                                },
-                            ),
-                        )
-                        .build(),
-                )
-                .build();
+            let message = XcmMessageBuilder::default()
+                .set_next_hop(POP)
+                .send_to(ASSET_HUB)
+                .set_max_weight_limit()
+                .reserve_transfer(
+                    self.env().account_id(),
+                    self.env().transferred_value(),
+                    Xcm::default(),
+                );
             api::xcm::execute(&VersionedXcm::V4(message)).unwrap();
             Ok(())
         }
