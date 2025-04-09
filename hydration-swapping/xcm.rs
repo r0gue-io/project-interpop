@@ -70,10 +70,25 @@ impl XcmMessageBuilder {
         beneficiary: AccountId,
         xcm: Xcm<()>,
     ) -> Xcm<()> {
-        Xcm::builder_unsafe()
-            .buy_execution(asset, WeightLimit::Unlimited)
-            .deposit_reserve_asset(All.into(), local_account(beneficiary), xcm)
-            .build()
+        if xcm.is_empty() {
+            Xcm::builder_unsafe()
+                .buy_execution(asset, WeightLimit::Unlimited)
+                .deposit_asset(All.into(), local_account(beneficiary))
+                .build()
+        } else {
+            let deposit_beneficiary = Xcm::builder_unsafe()
+                .buy_execution(asset.clone(), WeightLimit::Unlimited)
+                .deposit_asset(All.into(), local_account(beneficiary))
+                .build();
+            Xcm::builder_unsafe()
+                .buy_execution(asset, WeightLimit::Unlimited)
+                .deposit_reserve_asset(
+                    All.into(),
+                    local_account(beneficiary),
+                    Xcm([deposit_beneficiary.0, xcm.0].concat()),
+                )
+                .build()
+        }
     }
 
     pub fn reserve_transfer(
@@ -88,6 +103,7 @@ impl XcmMessageBuilder {
             beneficiary,
             amount,
         );
+        // Balance of the contract caller.
         let asset: Asset = (Location::parent(), amount).into();
         // Construct a message to initiate a reserve withdraw.
         Xcm::builder_unsafe()

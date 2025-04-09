@@ -38,8 +38,7 @@ mod hydration_swapping {
         /// - Message 2: Reserve transfer from Asset Hub to Hydration.
         /// - Message 3: Swap tokens..
         #[ink(message, payable)]
-        pub fn swap(&mut self) -> Result<Option<QueryId>> {
-            let account = self.env().caller();
+        pub fn swap(&mut self, account: AccountId) -> Result<Option<QueryId>> {
             let amount = self.env().transferred_value();
             let give = Asset::from((
                 Location::new(
@@ -70,8 +69,13 @@ mod hydration_swapping {
         }
 
         #[ink(message, payable)]
-        pub fn fund_parachain(&mut self, hop: u32, para_id: u32, xcm: Option<Xcm<()>>) {
-            let account = self.env().account_id();
+        pub fn fund_parachain(
+            &mut self,
+            hop: u32,
+            account: AccountId,
+            para_id: u32,
+            xcm: Option<Xcm<()>>,
+        ) {
             let amount = self.env().transferred_value();
             let message = XcmMessageBuilder::default()
                 .set_next_hop(hop)
@@ -79,44 +83,58 @@ mod hydration_swapping {
                 .set_max_weight_limit()
                 .reserve_transfer(account, amount, xcm.unwrap_or_default());
             api::xcm::execute(&VersionedXcm::V4(message)).unwrap();
+            self.env().emit_event(ReserveTransferred {
+                account,
+                amount,
+                from: hop,
+                to: para_id,
+            });
         }
 
         #[ink(message, payable)]
-        pub fn fund_hydration(&mut self) -> Result<()> {
+        pub fn fund_hydration(&mut self, account: AccountId) -> Result<()> {
+            let amount = self.env().transferred_value();
             let fund_hydration_xcm = XcmMessageBuilder::default()
                 .set_next_hop(ASSET_HUB)
                 .send_to(HYDRATION)
                 .set_max_weight_limit()
-                .reserve_transfer(
-                    self.env().account_id(),
-                    self.env().transferred_value(),
-                    Xcm::default(),
-                );
+                .reserve_transfer(account, amount, Xcm::default());
+            self.env().emit_event(ReserveTransferred {
+                account,
+                amount,
+                from: ASSET_HUB,
+                to: HYDRATION,
+            });
             let message = XcmMessageBuilder::default()
                 .set_next_hop(POP)
                 .send_to(ASSET_HUB)
                 .set_max_weight_limit()
-                .reserve_transfer(
-                    self.env().account_id(),
-                    self.env().transferred_value(),
-                    fund_hydration_xcm,
-                );
+                .reserve_transfer(account, amount, fund_hydration_xcm);
             api::xcm::execute(&VersionedXcm::V4(message)).unwrap();
+            self.env().emit_event(ReserveTransferred {
+                account,
+                amount,
+                from: POP,
+                to: ASSET_HUB,
+            });
             Ok(())
         }
 
         #[ink(message, payable)]
-        pub fn fund_asset_hub(&mut self) -> Result<()> {
+        pub fn fund_asset_hub(&mut self, account: AccountId) -> Result<()> {
+            let amount = self.env().transferred_value();
             let message = XcmMessageBuilder::default()
                 .set_next_hop(POP)
                 .send_to(ASSET_HUB)
                 .set_max_weight_limit()
-                .reserve_transfer(
-                    self.env().account_id(),
-                    self.env().transferred_value(),
-                    Xcm::default(),
-                );
+                .reserve_transfer(account, amount, Xcm::default());
             api::xcm::execute(&VersionedXcm::V4(message)).unwrap();
+            self.env().emit_event(ReserveTransferred {
+                account,
+                amount,
+                from: POP,
+                to: ASSET_HUB,
+            });
             Ok(())
         }
 
@@ -132,6 +150,16 @@ mod hydration_swapping {
             api::remove([id].to_vec())?;
             Ok(())
         }
+    }
+
+    #[ink::event]
+    pub struct ReserveTransferred {
+        #[ink(topic)]
+        pub account: AccountId,
+        pub amount: u128,
+        pub from: u32,
+        #[ink(topic)]
+        pub to: u32,
     }
 
     #[cfg(test)]
