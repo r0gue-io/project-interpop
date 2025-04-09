@@ -1,13 +1,10 @@
 use ink::{
-    env::{
-        debug_println,
-        hash::{Blake2x256, CryptoHash},
-    },
-    primitives::AccountId,
+    env::hash::{Blake2x256, CryptoHash},
+    primitives::H160,
     scale::{Compact, Encode},
     xcm::prelude::*,
 };
-use pop_api::{messaging::xcm::Location, primitives::Balance};
+use pop_api::primitives::Balance;
 
 pub(crate) const UNITS: Balance = 1_000_000_000_000;
 pub(crate) const ASSET_HUB: u32 = 1000;
@@ -22,12 +19,12 @@ pub(crate) fn native_asset(amount: u128) -> Assets {
     (Location::parent(), amount).into()
 }
 
-fn local_account(account: AccountId) -> Location {
+fn local_account(account: H160) -> Location {
     Location::new(
         0,
-        AccountId32 {
+        AccountKey20 {
             network: None,
-            id: account.0,
+            key: account.0,
         },
     )
 }
@@ -36,6 +33,7 @@ pub(crate) struct XcmMessageBuilder {
     dest_chain: Option<u32>,
     current_hop: Option<u32>,
     weight_limit: WeightLimit,
+    account: Option<H160>,
 }
 
 impl Default for XcmMessageBuilder {
@@ -44,6 +42,7 @@ impl Default for XcmMessageBuilder {
             dest_chain: None,
             current_hop: None,
             weight_limit: Limited(Weight::MAX),
+            account: None,
         }
     }
 }
@@ -64,65 +63,77 @@ impl XcmMessageBuilder {
         self
     }
 
+    pub fn set_account(&mut self, account: H160, hashed: bool) -> &mut Self {
+        self.account = if hashed {
+            Some(hashed_account(self.current_hop(), account))
+        } else {
+            Some(account)
+        };
+        self
+    }
+
+    pub fn deposit_asset(&mut self, asset: Asset, beneficiary: H160) -> Xcm<()> {
+        Xcm::builder_unsafe()
+            .buy_execution(asset, WeightLimit::Unlimited)
+            .deposit_asset(
+                AssetFilter::Wild(WildAsset::All),
+                local_account(beneficiary),
+            )
+            .build()
+    }
+
     pub fn on_reserve_asset_deposited(
         &mut self,
         asset: Asset,
-        beneficiary: AccountId,
+        beneficiary: H160,
         xcm: Xcm<()>,
     ) -> Xcm<()> {
         if xcm.is_empty() {
-            Xcm::builder_unsafe()
-                .buy_execution(asset, WeightLimit::Unlimited)
-                .deposit_asset(All.into(), local_account(beneficiary))
-                .build()
+            self.deposit_asset(asset, beneficiary)
         } else {
-            let deposit_beneficiary = Xcm::builder_unsafe()
-                .buy_execution(asset.clone(), WeightLimit::Unlimited)
-                .deposit_asset(All.into(), local_account(beneficiary))
-                .build();
             Xcm::builder_unsafe()
-                .buy_execution(asset, WeightLimit::Unlimited)
+                .buy_execution(asset.clone(), WeightLimit::Unlimited)
                 .deposit_reserve_asset(
-                    All.into(),
+                    AssetFilter::Wild(WildAsset::All),
                     local_account(beneficiary),
-                    Xcm([deposit_beneficiary.0, xcm.0].concat()),
+                    xcm,
                 )
                 .build()
         }
     }
 
-    pub fn reserve_transfer(
-        &mut self,
-        beneficiary: AccountId,
-        amount: u128,
-        xcm: Xcm<()>,
-    ) -> Xcm<()> {
-        let beneficiary = hashed_account(self.current_hop(), beneficiary);
-        debug_println!(
-            "xcm::reserve_transfer_para_to_para beneficiary={:?}, amount={:?}",
-            beneficiary,
-            amount,
-        );
+    pub fn reserve_transfer_no_withdraw(&mut self, amount: u128, xcm: Xcm<()>) -> Xcm<()> {
+        let beneficiary = self.account.unwrap();
         // Balance of the contract caller.
         let asset: Asset = (Location::parent(), amount).into();
         // Construct a message to initiate a reserve withdraw.
         Xcm::builder_unsafe()
-            .withdraw_asset(asset.clone().into())
+            .buy_execution(asset.clone(), WeightLimit::Unlimited)
             .initiate_reserve_withdraw(
-                asset.clone().into(),
+                Assets::from(asset.clone()),
                 self.dest(),
                 self.on_reserve_asset_deposited(asset, beneficiary, xcm),
             )
             .build()
     }
 
-    pub fn swap(
-        &mut self,
-        beneficiary: AccountId,
-        give: Asset,
-        want: Asset,
-        is_sell: bool,
-    ) -> Xcm<()> {
+    pub fn reserve_transfer(&mut self, amount: u128, xcm: Xcm<()>) -> Xcm<()> {
+        let beneficiary = self.account.unwrap();
+        // Balance of the contract caller.
+        let asset: Asset = (Location::parent(), amount).into();
+        // Construct a message to initiate a reserve withdraw.
+        Xcm::builder_unsafe()
+            .withdraw_asset(Assets::from(asset.clone()))
+            .initiate_reserve_withdraw(
+                Assets::from(asset.clone()),
+                self.dest(),
+                self.on_reserve_asset_deposited(asset, beneficiary, xcm),
+            )
+            .build()
+    }
+
+    pub fn swap(&mut self, give: Asset, want: Asset, is_sell: bool) -> Xcm<()> {
+        let beneficiary = self.account.unwrap();
         let assets: Assets = native_asset(100 * UNITS);
         let dest = self.dest();
         let context = Junctions::from([
@@ -136,7 +147,7 @@ impl XcmMessageBuilder {
             .reanchored(&dest, &context)
             .expect("should reanchor");
         let give: AssetFilter = Definite(give.into());
-        let want = want.into();
+        let want: Assets = want.into();
 
         Xcm::<()>::builder_unsafe()
             .set_fees_mode(true)
@@ -161,14 +172,14 @@ impl XcmMessageBuilder {
     }
 }
 
-pub(crate) fn hashed_account(para_id: u32, account_id: AccountId) -> AccountId {
+pub(crate) fn hashed_account(para_id: u32, account_id: H160) -> H160 {
     let location = (
         b"SiblingChain",
         Compact::<u32>::from(para_id),
         (b"AccountId32", account_id.0).encode(),
     )
         .encode();
-    let mut output = [0u8; 32];
+    let mut output = [0u8; 20];
     Blake2x256::hash(&location, &mut output);
-    AccountId::from(output)
+    H160::from(output)
 }

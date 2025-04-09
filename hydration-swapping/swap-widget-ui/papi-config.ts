@@ -1,29 +1,23 @@
 "use client";
 
-import { dot, pop } from "@polkadot-api/descriptors";
+import { popTestnetLocal } from "@polkadot-api/descriptors";
 import type { TypedApi } from "polkadot-api";
 
 export interface ChainConfig {
   key: string;
   name: string;
-  descriptors: typeof dot;
+  descriptors: typeof popTestnetLocal;
   endpoints: string[];
   explorerUrl?: string;
 }
 
-export type AvailableApis = TypedApi<typeof dot>;
+export type AvailableApis = TypedApi<typeof popTestnetLocal>;
 
 export const chainConfig: ChainConfig[] = [
   {
-    key: "dot",
-    name: "Polkadot",
-    descriptors: dot,
-    endpoints: ["wss://rpc.polkadot.io"],
-  },
-  {
-    key: "pop",
-    name: "pop",
-    descriptors: pop,
+    key: "popTestnetLocal",
+    name: "popTestnetLocal",
+    descriptors: popTestnetLocal,
     endpoints: ["ws://localhost:9944"],
   },
 ];
