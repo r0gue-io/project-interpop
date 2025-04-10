@@ -42,6 +42,7 @@ mod hydration_swapping {
             to: u32,
             beneficiary: AccountId,
             hashed: bool,
+            swap_fee: u128,
         ) -> Result<()> {
             self.multi_hop_swap(
                 POP,
@@ -52,6 +53,7 @@ mod hydration_swapping {
                 u128::MAX,
                 beneficiary,
                 hashed,
+                swap_fee,
             )
         }
 
@@ -63,14 +65,15 @@ mod hydration_swapping {
             to_para: u32,
             asset_in: u128,
             asset_out: u128,
-            max_amount_out: u128,
+            max_amount_in: u128,
             beneficiary: AccountId,
             hashed: bool,
+            swap_fee: u128,
         ) -> Result<()> {
-            let amount_in = self.env().transferred_value();
+            let amount_out = self.env().transferred_value();
 
             // Deposit the destination account on the local `to_para`.
-            let local_dest_fee = fee_amount(&native_asset(amount_in), 2);
+            let local_dest_fee = fee_amount(&native_asset(amount_out), 2);
             let deposit_dest_account = XcmMessageBuilder::default()
                 .set_next_hop(to_para)
                 .set_max_weight_limit()
@@ -83,11 +86,16 @@ mod hydration_swapping {
                 .send_to(intermediary_hop)
                 .set_max_weight_limit()
                 .deposit_to_parachain(to_para)
-                .reserve_transfer(amount_in, deposit_dest_account);
+                .reserve_transfer(amount_out, deposit_dest_account);
 
             // Swap tokens on `HYDRATION` and then reserve transfer to `intermediary_hop`.
-            let swap_on_hydration =
-                XcmMessageBuilder::default().buy(asset_in, asset_out, amount_in, max_amount_out);
+            let swap_on_hydration = XcmMessageBuilder::default().set_max_weight_limit().buy(
+                asset_in,
+                asset_out,
+                amount_out,
+                max_amount_in,
+                swap_fee,
+            );
 
             // Transfer from `from_para` to `intermediary_hop` and deposit to `HYDRATION`.
             let message = XcmMessageBuilder::default()
@@ -96,12 +104,12 @@ mod hydration_swapping {
                 .set_max_weight_limit()
                 .deposit_to_parachain(HYDRATION)
                 .reserve_transfer(
-                    amount_in,
+                    amount_out,
                     Xcm([swap_on_hydration.0, reserve_transfer_to_intermediary_hop.0].concat()),
                 );
 
             api::xcm::execute(&VersionedXcm::V4(Xcm([
-                [WithdrawAsset(native_asset(amount_in).into())].to_vec(),
+                [WithdrawAsset(native_asset(amount_out).into())].to_vec(),
                 message.0,
             ]
             .concat()
