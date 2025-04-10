@@ -1,9 +1,11 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
 
+use api::xcm::{Junction, Junctions, Location};
 use ink::{
+    env::debug_println,
     prelude::vec::Vec,
     xcm::{
-        prelude::{Asset, Junction, Junctions, Location, Xcm},
+        v4::{Asset, Xcm},
         VersionedXcm,
     },
 };
@@ -19,8 +21,6 @@ pub type Result<T> = core::result::Result<T, StatusCode>;
 
 #[ink::contract]
 mod hydration_swapping {
-    use ink::{H160, U256};
-
     use super::*;
 
     #[ink(storage)]
@@ -38,7 +38,7 @@ mod hydration_swapping {
         /// - Message 2: Reserve transfer from Asset Hub to Hydration.
         /// - Message 3: Swap tokens..
         #[ink(message, payable)]
-        pub fn swap(&mut self, account: H160, hashed: bool) -> Result<Option<QueryId>> {
+        pub fn swap(&mut self, account: AccountId, hashed: bool) -> Result<Option<QueryId>> {
             let amount = self.env().transferred_value();
             let give = Asset::from((
                 Location::new(
@@ -76,7 +76,7 @@ mod hydration_swapping {
         pub fn fund_parachain(
             &mut self,
             hop: u32,
-            account: H160,
+            account: AccountId,
             para_id: u32,
             hashed: bool,
             xcm: Option<Xcm<()>>,
@@ -88,7 +88,7 @@ mod hydration_swapping {
                 .set_max_weight_limit()
                 .set_account(account, hashed)
                 .reserve_transfer(amount, xcm.unwrap_or_default());
-            api::xcm::execute(&VersionedXcm::V5(message)).unwrap();
+            api::xcm::execute(&VersionedXcm::V4(message)).unwrap();
             self.env().emit_event(ReserveTransferred {
                 account,
                 amount,
@@ -98,7 +98,7 @@ mod hydration_swapping {
         }
 
         #[ink(message, payable)]
-        pub fn fund_hydration(&mut self, account: H160, hashed: bool) -> Result<()> {
+        pub fn fund_hydration(&mut self, account: AccountId, hashed: bool) -> Result<()> {
             let amount = self.env().transferred_value();
             let message = XcmMessageBuilder::default()
                 .set_next_hop(POP)
@@ -114,7 +114,7 @@ mod hydration_swapping {
                         .set_account(account, hashed)
                         .reserve_transfer_no_withdraw(amount, Xcm::default()),
                 );
-            api::xcm::execute(&VersionedXcm::V5(message)).unwrap();
+            api::xcm::execute(&VersionedXcm::V4(message)).unwrap();
             self.env().emit_event(ReserveTransferred {
                 account,
                 amount,
@@ -131,7 +131,7 @@ mod hydration_swapping {
         }
 
         #[ink(message, payable)]
-        pub fn fund_asset_hub(&mut self, account: H160, hashed: bool) -> Result<()> {
+        pub fn fund_asset_hub(&mut self, account: AccountId, hashed: bool) -> Result<()> {
             let amount = self.env().transferred_value();
             let message = XcmMessageBuilder::default()
                 .set_next_hop(POP)
@@ -139,7 +139,7 @@ mod hydration_swapping {
                 .set_max_weight_limit()
                 .set_account(account, hashed)
                 .reserve_transfer(amount, Xcm::default());
-            api::xcm::execute(&VersionedXcm::V5(message)).unwrap();
+            api::xcm::execute(&VersionedXcm::V4(message)).unwrap();
             self.env().emit_event(ReserveTransferred {
                 account,
                 amount,
@@ -151,11 +151,13 @@ mod hydration_swapping {
 
         #[ink(message)]
         pub fn get(&self, id: MessageId) -> Result<Option<Vec<u8>>> {
-            api::get((self.env().caller(), id))
+            debug_println!("messaging::get id={id}");
+            api::get((self.env().account_id(), id))
         }
 
         #[ink(message)]
         pub fn remove(&mut self, id: MessageId) -> Result<()> {
+            debug_println!("messaging::remove id={id}");
             api::remove([id].to_vec())?;
             Ok(())
         }
@@ -164,8 +166,8 @@ mod hydration_swapping {
     #[ink::event]
     pub struct ReserveTransferred {
         #[ink(topic)]
-        pub account: H160,
-        pub amount: U256,
+        pub account: AccountId,
+        pub amount: u128,
         pub from: u32,
         #[ink(topic)]
         pub to: u32,

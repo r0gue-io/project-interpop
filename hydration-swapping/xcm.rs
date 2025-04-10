@@ -1,10 +1,10 @@
 use ink::{
     env::hash::{Blake2x256, CryptoHash},
-    primitives::H160,
+    primitives::AccountId,
     scale::{Compact, Encode},
     xcm::prelude::*,
 };
-use pop_api::primitives::Balance;
+use pop_api::{messaging::xcm::Location, primitives::Balance};
 
 pub(crate) const UNITS: Balance = 1_000_000_000_000;
 pub(crate) const ASSET_HUB: u32 = 1000;
@@ -19,12 +19,12 @@ pub(crate) fn native_asset(amount: u128) -> Assets {
     (Location::parent(), amount).into()
 }
 
-fn local_account(account: H160) -> Location {
+fn local_account(account: AccountId) -> Location {
     Location::new(
         0,
-        AccountKey20 {
+        AccountId32 {
             network: None,
-            key: account.0,
+            id: account.0,
         },
     )
 }
@@ -33,7 +33,7 @@ pub(crate) struct XcmMessageBuilder {
     dest_chain: Option<u32>,
     current_hop: Option<u32>,
     weight_limit: WeightLimit,
-    account: Option<H160>,
+    account: Option<AccountId>,
 }
 
 impl Default for XcmMessageBuilder {
@@ -63,7 +63,7 @@ impl XcmMessageBuilder {
         self
     }
 
-    pub fn set_account(&mut self, account: H160, hashed: bool) -> &mut Self {
+    pub fn set_account(&mut self, account: AccountId, hashed: bool) -> &mut Self {
         self.account = if hashed {
             Some(hashed_account(self.current_hop(), account))
         } else {
@@ -72,20 +72,17 @@ impl XcmMessageBuilder {
         self
     }
 
-    pub fn deposit_asset(&mut self, asset: Asset, beneficiary: H160) -> Xcm<()> {
+    pub fn deposit_asset(&mut self, asset: Asset, beneficiary: AccountId) -> Xcm<()> {
         Xcm::builder_unsafe()
             .buy_execution(asset, WeightLimit::Unlimited)
-            .deposit_asset(
-                AssetFilter::Wild(WildAsset::All),
-                local_account(beneficiary),
-            )
+            .deposit_asset(All.into(), local_account(beneficiary))
             .build()
     }
 
     pub fn on_reserve_asset_deposited(
         &mut self,
         asset: Asset,
-        beneficiary: H160,
+        beneficiary: AccountId,
         xcm: Xcm<()>,
     ) -> Xcm<()> {
         if xcm.is_empty() {
@@ -93,11 +90,7 @@ impl XcmMessageBuilder {
         } else {
             Xcm::builder_unsafe()
                 .buy_execution(asset.clone(), WeightLimit::Unlimited)
-                .deposit_reserve_asset(
-                    AssetFilter::Wild(WildAsset::All),
-                    local_account(beneficiary),
-                    xcm,
-                )
+                .deposit_reserve_asset(All.into(), local_account(beneficiary), xcm)
                 .build()
         }
     }
@@ -110,7 +103,7 @@ impl XcmMessageBuilder {
         Xcm::builder_unsafe()
             .buy_execution(asset.clone(), WeightLimit::Unlimited)
             .initiate_reserve_withdraw(
-                Assets::from(asset.clone()),
+                asset.clone().into(),
                 self.dest(),
                 self.on_reserve_asset_deposited(asset, beneficiary, xcm),
             )
@@ -123,9 +116,9 @@ impl XcmMessageBuilder {
         let asset: Asset = (Location::parent(), amount).into();
         // Construct a message to initiate a reserve withdraw.
         Xcm::builder_unsafe()
-            .withdraw_asset(Assets::from(asset.clone()))
+            .withdraw_asset(asset.clone().into())
             .initiate_reserve_withdraw(
-                Assets::from(asset.clone()),
+                asset.clone().into(),
                 self.dest(),
                 self.on_reserve_asset_deposited(asset, beneficiary, xcm),
             )
@@ -147,7 +140,7 @@ impl XcmMessageBuilder {
             .reanchored(&dest, &context)
             .expect("should reanchor");
         let give: AssetFilter = Definite(give.into());
-        let want: Assets = want.into();
+        let want = want.into();
 
         Xcm::<()>::builder_unsafe()
             .set_fees_mode(true)
@@ -172,14 +165,14 @@ impl XcmMessageBuilder {
     }
 }
 
-pub(crate) fn hashed_account(para_id: u32, account_id: H160) -> H160 {
+pub(crate) fn hashed_account(para_id: u32, account_id: AccountId) -> AccountId {
     let location = (
         b"SiblingChain",
         Compact::<u32>::from(para_id),
         (b"AccountId32", account_id.0).encode(),
     )
         .encode();
-    let mut output = [0u8; 20];
+    let mut output = [0u8; 32];
     Blake2x256::hash(&location, &mut output);
-    H160::from(output)
+    AccountId::from(output)
 }

@@ -1,8 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
 
 mod xcm;
-use ink::scale::{Encode, Compact};
 use ink::env::hash::{Blake2x256, CryptoHash};
+use ink::scale::{Compact, Encode};
 use ink::xcm::{
     prelude::{Asset, Junction::Parachain, Location, OriginKind, Weight, Xcm, XcmHash},
     VersionedXcm,
@@ -57,7 +57,13 @@ mod execute_on_hydra {
                         .buy_execution(asset.clone(), WeightLimit::Unlimited)
                         .deposit_asset(
                             All.into(),
-                            Location::new(0, AccountId32 { network: None, id: beneficiary.0 }),
+                            Location::new(
+                                0,
+                                AccountId32 {
+                                    network: None,
+                                    id: beneficiary.0,
+                                },
+                            ),
                         )
                         .build(),
                 )
@@ -113,12 +119,7 @@ mod execute_on_hydra {
         }
 
         #[ink(message)]
-        pub fn fund_contract_on_hydra(
-            &mut self,
-            amount: u128,
-            ref_time: u64,
-            proof_size: u64,
-        ) {
+        pub fn fund_contract_on_hydra(&mut self, amount: u128, ref_time: u64, proof_size: u64) {
             let hydra = Junctions::from([Parachain(2034)]);
             let dest: Location = Location {
                 parents: 1,
@@ -129,14 +130,8 @@ mod execute_on_hydra {
             let fee_asset: Asset = (Location::parent(), 10000000000u128).into();
 
             // Define the chain locations
-            let asset_hub = Location::new(
-                1,
-                Junctions::from([Parachain(1000)]),
-            );
-            let hydra = Location::new(
-                1,
-               Junctions::from([Parachain(2034)]),
-            );
+            let asset_hub = Location::new(1, Junctions::from([Parachain(1000)]));
+            let hydra = Location::new(1, Junctions::from([Parachain(2034)]));
             let beneficiary = Location::new(
                 0,
                 Junctions::from([AccountId32 {
@@ -150,7 +145,7 @@ mod execute_on_hydra {
                 id: asset.id.clone(),
                 fun: Fungible(amount),
             }
-                .into();
+            .into();
 
             // Create the weight limit
             let weight_limit = Limited(Weight::from_parts(ref_time, proof_size));
@@ -173,9 +168,11 @@ mod execute_on_hydra {
                             assets: Wild(AllCounted(1)),
                             beneficiary,
                         },
-                    ].to_vec()),
+                    ]
+                    .to_vec()),
                 },
-            ].to_vec());
+            ]
+            .to_vec());
 
             // Executed on Pop (local chain)
             let message: Xcm<()> = Xcm([
@@ -185,7 +182,8 @@ mod execute_on_hydra {
                     reserve: asset_hub,
                     xcm: xcm_to_hydra,
                 },
-            ].to_vec());
+            ]
+            .to_vec());
 
             api::xcm::execute(&VersionedXcm::V4(message)).unwrap();
         }

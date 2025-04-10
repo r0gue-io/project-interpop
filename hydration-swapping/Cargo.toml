@@ -7,7 +7,7 @@ version = "0.1.0"
 [workspace]
 
 [dependencies]
-ink = { git = "https://github.com/use-ink/ink", default-features = false }
+ink = { version = "5.1.1", default-features = false }
 pop-api = { git = "https://github.com/r0gue-io/pop-node", default-features = false, features = [ "messaging" ] }
 
 [lib]
