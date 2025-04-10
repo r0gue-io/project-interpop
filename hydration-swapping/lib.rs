@@ -1,19 +1,15 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
 
-use api::xcm::{Junction, Junctions, Location};
 use ink::{
     env::debug_println,
     prelude::vec::Vec,
-    xcm::{
-        v4::{Asset, Xcm},
-        VersionedXcm,
-    },
+    xcm::{v4::Xcm, VersionedXcm},
 };
 use pop_api::{
     messaging::{self as api, xcm::QueryId, MessageId},
     StatusCode,
 };
-use xcm::{XcmMessageBuilder, ASSET_HUB, HYDRATION, POP, UNITS};
+use xcm::{XcmMessageBuilder, ASSET_HUB, POP};
 
 mod xcm;
 
@@ -21,6 +17,9 @@ pub type Result<T> = core::result::Result<T, StatusCode>;
 
 #[ink::contract]
 mod hydration_swapping {
+    use ink::xcm::v4::Instruction::WithdrawAsset;
+    use xcm::{fee_amount, native_asset};
+
     use super::*;
 
     #[ink(storage)]
@@ -39,56 +38,25 @@ mod hydration_swapping {
         /// - Message 3: Swap tokens..
         #[ink(message, payable)]
         pub fn swap(&mut self, account: AccountId, hashed: bool) -> Result<Option<QueryId>> {
-            let amount = self.env().transferred_value();
-            let give = Asset::from((
-                Location::new(
-                    1,
-                    Junctions::from([Junction::Parachain(HYDRATION), Junction::GeneralIndex(0)]),
-                ),
-                50 * UNITS,
-            ));
-            let want = Asset::from((
-                Location::new(
-                    1,
-                    Junctions::from([Junction::Parachain(HYDRATION), Junction::GeneralIndex(0)]),
-                ),
-                50 * UNITS,
-            ));
-            let swap_on_hydration = XcmMessageBuilder::default()
-                .set_account(account, hashed)
-                .swap(give, want, false);
-            let fund_hydration_xcm = XcmMessageBuilder::default()
-                .set_next_hop(ASSET_HUB)
-                .send_to(HYDRATION)
-                .set_max_weight_limit()
-                .set_account(account, true)
-                .reserve_transfer(amount, swap_on_hydration);
-            let fund_asset_hub_xcm = XcmMessageBuilder::default()
-                .set_next_hop(ASSET_HUB)
-                .set_max_weight_limit()
-                .set_account(account, true)
-                .reserve_transfer(amount, fund_hydration_xcm);
-            api::xcm::execute(&VersionedXcm::V4(fund_asset_hub_xcm)).unwrap();
-            Ok(None)
+            unimplemented!()
         }
 
         #[ink(message, payable)]
-        pub fn fund_parachain(
-            &mut self,
-            hop: u32,
-            account: AccountId,
-            para_id: u32,
-            hashed: bool,
-            xcm: Option<Xcm<()>>,
-        ) {
+        pub fn fund_direct(&mut self, account: AccountId, para_id: u32, hop: u32, hashed: bool) {
             let amount = self.env().transferred_value();
             let message = XcmMessageBuilder::default()
                 .set_next_hop(hop)
                 .send_to(para_id)
                 .set_max_weight_limit()
-                .set_account(account, hashed)
-                .reserve_transfer(amount, xcm.unwrap_or_default());
-            api::xcm::execute(&VersionedXcm::V4(message)).unwrap();
+                .deposit_to_account(account, hashed)
+                .reserve_transfer(amount, Xcm::default());
+            api::xcm::execute(&VersionedXcm::V4(Xcm([
+                [WithdrawAsset(native_asset(amount).into())].to_vec(),
+                message.0,
+            ]
+            .concat()
+            .to_vec())))
+            .unwrap();
             self.env().emit_event(ReserveTransferred {
                 account,
                 amount,
@@ -98,34 +66,45 @@ mod hydration_swapping {
         }
 
         #[ink(message, payable)]
-        pub fn fund_hydration(&mut self, account: AccountId, hashed: bool) -> Result<()> {
+        pub fn fund_indirect(
+            &mut self,
+            account: AccountId,
+            para_id: u32,
+            starting_hop: u32,
+            intermediary_hop: u32,
+            hashed: bool,
+        ) -> Result<()> {
             let amount = self.env().transferred_value();
-            let message = XcmMessageBuilder::default()
-                .set_next_hop(POP)
-                .send_to(ASSET_HUB)
+            let local_hydration_fee = fee_amount(&native_asset(amount), 2);
+            let fund_hydration_xcm = XcmMessageBuilder::default()
+                .set_next_hop(intermediary_hop)
                 .set_max_weight_limit()
-                .set_account(account, true)
-                .reserve_transfer(
-                    amount,
-                    XcmMessageBuilder::default()
-                        .set_next_hop(ASSET_HUB)
-                        .send_to(HYDRATION)
-                        .set_max_weight_limit()
-                        .set_account(account, hashed)
-                        .reserve_transfer_no_withdraw(amount, Xcm::default()),
-                );
-            api::xcm::execute(&VersionedXcm::V4(message)).unwrap();
+                .deposit_to_account(account, hashed)
+                .deposit_asset(local_hydration_fee);
+            let message = XcmMessageBuilder::default()
+                .set_next_hop(starting_hop)
+                .send_to(intermediary_hop)
+                .set_max_weight_limit()
+                .deposit_to_parachain(para_id)
+                .reserve_transfer(amount, fund_hydration_xcm);
+            api::xcm::execute(&VersionedXcm::V4(Xcm([
+                [WithdrawAsset(native_asset(amount).into())].to_vec(),
+                message.0,
+            ]
+            .concat()
+            .to_vec())))
+            .unwrap();
             self.env().emit_event(ReserveTransferred {
                 account,
                 amount,
-                from: POP,
-                to: ASSET_HUB,
+                from: starting_hop,
+                to: intermediary_hop,
             });
             self.env().emit_event(ReserveTransferred {
                 account,
                 amount,
-                from: ASSET_HUB,
-                to: HYDRATION,
+                from: intermediary_hop,
+                to: para_id,
             });
             Ok(())
         }
@@ -137,9 +116,15 @@ mod hydration_swapping {
                 .set_next_hop(POP)
                 .send_to(ASSET_HUB)
                 .set_max_weight_limit()
-                .set_account(account, hashed)
+                .deposit_to_account(account, hashed)
                 .reserve_transfer(amount, Xcm::default());
-            api::xcm::execute(&VersionedXcm::V4(message)).unwrap();
+            api::xcm::execute(&VersionedXcm::V4(Xcm([
+                [WithdrawAsset(native_asset(amount).into())].to_vec(),
+                message.0,
+            ]
+            .concat()
+            .to_vec())))
+            .unwrap();
             self.env().emit_event(ReserveTransferred {
                 account,
                 amount,

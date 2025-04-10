@@ -15,7 +15,7 @@ pub(crate) fn para(id: u32) -> Location {
     Location::new(1, Parachain(id))
 }
 
-pub(crate) fn native_asset(amount: u128) -> Assets {
+pub(crate) fn native_asset(amount: u128) -> Asset {
     (Location::parent(), amount).into()
 }
 
@@ -29,11 +29,16 @@ fn local_account(account: AccountId) -> Location {
     )
 }
 
+enum DepositedLocation {
+    Account(AccountId),
+    Parachain(u32),
+}
+
 pub(crate) struct XcmMessageBuilder {
     dest_chain: Option<u32>,
     current_hop: Option<u32>,
     weight_limit: WeightLimit,
-    account: Option<AccountId>,
+    deposited_location: Option<DepositedLocation>,
 }
 
 impl Default for XcmMessageBuilder {
@@ -42,7 +47,7 @@ impl Default for XcmMessageBuilder {
             dest_chain: None,
             current_hop: None,
             weight_limit: Limited(Weight::MAX),
-            account: None,
+            deposited_location: None,
         }
     }
 }
@@ -63,101 +68,78 @@ impl XcmMessageBuilder {
         self
     }
 
-    pub fn set_account(&mut self, account: AccountId, hashed: bool) -> &mut Self {
-        self.account = if hashed {
-            Some(hashed_account(self.current_hop(), account))
+    pub fn deposit_to_account(&mut self, account: AccountId, hashed: bool) -> &mut Self {
+        self.deposited_location = Some(DepositedLocation::Account(if hashed {
+            hashed_account(self.current_hop(), account)
         } else {
-            Some(account)
-        };
+            account
+        }));
         self
     }
 
-    pub fn deposit_asset(&mut self, asset: Asset, beneficiary: AccountId) -> Xcm<()> {
-        Xcm::builder_unsafe()
-            .buy_execution(asset, WeightLimit::Unlimited)
-            .deposit_asset(All.into(), local_account(beneficiary))
-            .build()
+    pub fn deposit_to_parachain(&mut self, para: u32) -> &mut Self {
+        self.deposited_location = Some(DepositedLocation::Parachain(para));
+        self
     }
 
-    pub fn on_reserve_asset_deposited(
-        &mut self,
-        asset: Asset,
-        beneficiary: AccountId,
-        xcm: Xcm<()>,
-    ) -> Xcm<()> {
-        if xcm.is_empty() {
-            self.deposit_asset(asset, beneficiary)
-        } else {
-            Xcm::builder_unsafe()
-                .buy_execution(asset.clone(), WeightLimit::Unlimited)
-                .deposit_reserve_asset(All.into(), local_account(beneficiary), xcm)
-                .build()
+    pub fn deposit_asset(&mut self, fee_asset: Asset) -> Xcm<()> {
+        match self.deposited_location {
+            Some(DepositedLocation::Account(account)) => Xcm::builder_unsafe()
+                .buy_execution(fee_asset, self.weight_limit.clone())
+                .deposit_asset(All.into(), local_account(account))
+                .build(),
+            _ => panic!("No deposited location set"),
         }
     }
 
-    pub fn reserve_transfer_no_withdraw(&mut self, amount: u128, xcm: Xcm<()>) -> Xcm<()> {
-        let beneficiary = self.account.unwrap();
-        // Balance of the contract caller.
-        let asset: Asset = (Location::parent(), amount).into();
-        // Construct a message to initiate a reserve withdraw.
-        Xcm::builder_unsafe()
-            .buy_execution(asset.clone(), WeightLimit::Unlimited)
-            .initiate_reserve_withdraw(
-                asset.clone().into(),
-                self.dest(),
-                self.on_reserve_asset_deposited(asset, beneficiary, xcm),
-            )
-            .build()
+    pub fn on_reserve_asset_deposited(&mut self, fee_asset: Asset, xcm: Xcm<()>) -> Xcm<()> {
+        if xcm.is_empty() {
+            self.deposit_asset(fee_asset)
+        } else {
+            let builder = Xcm::builder_unsafe().buy_execution(fee_asset, self.weight_limit.clone());
+            match self.deposited_location {
+                Some(DepositedLocation::Account(account)) => builder
+                    .deposit_reserve_asset(All.into(), local_account(account), xcm)
+                    .build(),
+                Some(DepositedLocation::Parachain(id)) => builder
+                    .deposit_reserve_asset(All.into(), para(id), xcm)
+                    .build(),
+                _ => panic!("No deposited location set"),
+            }
+        }
     }
 
     pub fn reserve_transfer(&mut self, amount: u128, xcm: Xcm<()>) -> Xcm<()> {
-        let beneficiary = self.account.unwrap();
-        // Balance of the contract caller.
-        let asset: Asset = (Location::parent(), amount).into();
-        // Construct a message to initiate a reserve withdraw.
-        Xcm::builder_unsafe()
-            .withdraw_asset(asset.clone().into())
-            .initiate_reserve_withdraw(
-                asset.clone().into(),
-                self.dest(),
-                self.on_reserve_asset_deposited(asset, beneficiary, xcm),
-            )
-            .build()
-    }
-
-    pub fn swap(&mut self, give: Asset, want: Asset, is_sell: bool) -> Xcm<()> {
-        let beneficiary = self.account.unwrap();
-        let assets: Assets = native_asset(100 * UNITS);
-        let dest = self.dest();
-        let context = Junctions::from([
+        let origin_context = Junctions::from([
             Junction::GlobalConsensus(NetworkId::Polkadot),
             Junction::Parachain(self.current_hop()),
         ]);
-        let fees = assets
-            .get(0)
-            .expect("should have at least 1 asset")
+        // Balance of the contract caller.
+        let asset = native_asset(amount);
+        let reserve_fees = asset
             .clone()
-            .reanchored(&dest, &context)
+            .reanchored(&self.from_chain(), &origin_context)
             .expect("should reanchor");
-        let give: AssetFilter = Definite(give.into());
-        let want = want.into();
 
-        Xcm::<()>::builder_unsafe()
-            .set_fees_mode(true)
-            .transfer_reserve_asset(
-                assets,
-                dest,
-                Xcm::builder_unsafe()
-                    .buy_execution(fees, self.weight_limit.clone())
-                    .exchange_asset(give, want, is_sell)
-                    .deposit_asset(Wild(AllCounted(1)), local_account(beneficiary))
-                    .build(),
+        Xcm::builder_unsafe()
+            .initiate_reserve_withdraw(
+                asset.clone().into(),
+                self.dest_chain(),
+                self.on_reserve_asset_deposited(reserve_fees, xcm),
             )
             .build()
     }
 
-    fn dest(&self) -> Location {
+    pub fn swap(&mut self, _give: Asset, _want: Asset, _is_sell: bool) -> Xcm<()> {
+        unimplemented!()
+    }
+
+    fn dest_chain(&self) -> Location {
         self.dest_chain.map(para).unwrap_or(Location::parent())
+    }
+
+    fn from_chain(&self) -> Location {
+        self.current_hop.map(para).unwrap_or(Location::parent())
     }
 
     fn current_hop(&self) -> u32 {
@@ -175,4 +157,23 @@ pub(crate) fn hashed_account(para_id: u32, account_id: AccountId) -> AccountId {
     let mut output = [0u8; 32];
     Blake2x256::hash(&location, &mut output);
     AccountId::from(output)
+}
+
+/// Returns amount if `asset` is fungible, or zero.
+pub(crate) fn fungible_amount(asset: &Asset) -> u128 {
+    if let Fungible(amount) = &asset.fun {
+        *amount
+    } else {
+        0
+    }
+}
+
+pub(crate) fn fee_amount(asset: &Asset, div_by: u128) -> Asset {
+    let amount = fungible_amount(asset)
+        .checked_div(div_by)
+        .expect("div 2 can't overflow; qed");
+    Asset {
+        fun: Fungible(amount),
+        id: asset.clone().id,
+    }
 }
