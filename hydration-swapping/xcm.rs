@@ -4,9 +4,8 @@ use ink::{
     scale::{Compact, Encode},
     xcm::prelude::*,
 };
-use pop_api::{messaging::xcm::Location, primitives::Balance};
+use pop_api::messaging::xcm::Location;
 
-pub(crate) const UNITS: Balance = 1_000_000_000_000;
 pub(crate) const ASSET_HUB: u32 = 1000;
 pub(crate) const HYDRATION: u32 = 2034;
 pub(crate) const POP: u32 = 4001;
@@ -118,7 +117,7 @@ impl XcmMessageBuilder {
         let asset = native_asset(amount);
         let reserve_fees = asset
             .clone()
-            .reanchored(&self.from_chain(), &origin_context)
+            .reanchored(&self.source_chain(), &origin_context)
             .expect("should reanchor");
 
         Xcm::builder_unsafe()
@@ -130,15 +129,11 @@ impl XcmMessageBuilder {
             .build()
     }
 
-    pub fn swap(&mut self, _give: Asset, _want: Asset, _is_sell: bool) -> Xcm<()> {
-        unimplemented!()
-    }
-
     fn dest_chain(&self) -> Location {
         self.dest_chain.map(para).unwrap_or(Location::parent())
     }
 
-    fn from_chain(&self) -> Location {
+    fn source_chain(&self) -> Location {
         self.current_hop.map(para).unwrap_or(Location::parent())
     }
 
