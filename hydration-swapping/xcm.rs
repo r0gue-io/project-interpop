@@ -10,25 +10,7 @@ pub(crate) const ASSET_HUB: u32 = 1000;
 pub(crate) const HYDRATION: u32 = 2034;
 pub(crate) const POP: u32 = 4001;
 
-pub(crate) fn para(id: u32) -> Location {
-    Location::new(1, Parachain(id))
-}
-
-pub(crate) fn native_asset(amount: u128) -> Asset {
-    (Location::parent(), amount).into()
-}
-
-fn local_account(account: AccountId) -> Location {
-    Location::new(
-        0,
-        AccountId32 {
-            network: None,
-            id: account.0,
-        },
-    )
-}
-
-enum DepositedLocation {
+pub enum DepositedLocation {
     Account(AccountId),
     Parachain(u32),
 }
@@ -129,6 +111,21 @@ impl XcmMessageBuilder {
             .build()
     }
 
+    pub fn buy(
+        &mut self,
+        asset_in: u128,
+        asset_out: u128,
+        amount_in: u128,
+        max_amount_out: u128,
+    ) -> Xcm<()> {
+        let give_asset: Asset = asset(asset_in, amount_in);
+        let want_asset: Asset = asset(asset_out, max_amount_out);
+        Xcm::builder_unsafe()
+            .buy_execution(fee_amount(&give_asset, 2), WeightLimit::Unlimited)
+            .exchange_asset(give_asset.into(), want_asset.into(), false)
+            .build()
+    }
+
     fn dest_chain(&self) -> Location {
         self.dest_chain.map(para).unwrap_or(Location::parent())
     }
@@ -171,4 +168,32 @@ pub(crate) fn fee_amount(asset: &Asset, div_by: u128) -> Asset {
         fun: Fungible(amount),
         id: asset.clone().id,
     }
+}
+
+pub(crate) fn para(id: u32) -> Location {
+    Location::new(1, Parachain(id))
+}
+
+pub(crate) fn asset(id: u128, amount: u128) -> Asset {
+    Asset {
+        id: AssetId(Location {
+            parents: 1,
+            interior: Junctions::from([GeneralIndex(id)]),
+        }),
+        fun: amount.into(),
+    }
+}
+
+pub(crate) fn native_asset(amount: u128) -> Asset {
+    (Location::parent(), amount).into()
+}
+
+pub(crate) fn local_account(account: AccountId) -> Location {
+    Location::new(
+        0,
+        AccountId32 {
+            network: None,
+            id: account.0,
+        },
+    )
 }

@@ -1,7 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
 
-use api::xcm::{Junction, Junctions, NetworkId};
-use ink::xcm::v4::{Asset, Instruction::WithdrawAsset, Reanchorable};
+use ink::xcm::v4::Instruction::WithdrawAsset;
 use ink::{
     env::debug_println,
     prelude::vec::Vec,
@@ -11,7 +10,7 @@ use pop_api::{
     messaging::{self as api, MessageId},
     StatusCode,
 };
-use xcm::{fee_amount, native_asset, para, HYDRATION};
+use xcm::{fee_amount, native_asset, HYDRATION};
 use xcm::{XcmMessageBuilder, ASSET_HUB, POP};
 
 mod xcm;
@@ -20,8 +19,7 @@ pub type Result<T> = core::result::Result<T, StatusCode>;
 
 #[ink::contract]
 mod hydration_swapping {
-
-    use ink::xcm::v4::WeightLimit;
+    use core::u128;
 
     use super::*;
 
@@ -36,73 +34,74 @@ mod hydration_swapping {
         }
 
         /// Swap PASEO tokens on Hydration.
-        /// - Message 1: Reserve transfer from Pop Network to Asset Hub.
-        /// - Message 2: Reserve transfer from Asset Hub to Hydration.
-        /// - Message 3: Swap tokens..
         #[ink(message, payable)]
         pub fn swap_on_hydration(
             &mut self,
-            give_asset: Asset,
-            want_asset: Asset,
+            asset_in: u128,
+            asset_out: u128,
+            to: u32,
+            beneficiary: AccountId,
+            hashed: bool,
+        ) -> Result<()> {
+            self.multi_hop_swap(
+                POP,
+                ASSET_HUB,
+                to,
+                asset_in,
+                asset_out,
+                u128::MAX,
+                beneficiary,
+                hashed,
+            )
+        }
+
+        #[ink(message, payable)]
+        pub fn multi_hop_swap(
+            &mut self,
             from_para: u32,
             intermediary_hop: u32,
             to_para: u32,
-            is_sell: bool,
-            account: AccountId,
+            asset_in: u128,
+            asset_out: u128,
+            max_amount_out: u128,
+            beneficiary: AccountId,
             hashed: bool,
         ) -> Result<()> {
-            let amount = self.env().transferred_value();
+            let amount_in = self.env().transferred_value();
 
-            let from_parachain = para(from_para);
-            let to_parachain = para(to_para);
-            let swap_parachain = para(HYDRATION);
-
-            let origin_context = Junctions::from([
-                Junction::GlobalConsensus(NetworkId::Polkadot),
-                Junction::Parachain(from_para),
-            ]);
-            let give = give_asset
-                .clone()
-                .reanchored(&to_parachain, &origin_context)
-                .expect("should reanchor give");
-            let fees = give_asset
-                .clone()
-                .reanchored(&swap_parachain, &from_parachain.interior)
-                .expect("should reanchor");
-
-            let local_dest_fee = fee_amount(&native_asset(amount), 2);
+            // Deposit the destination account on the local `to_para`.
+            let local_dest_fee = fee_amount(&native_asset(amount_in), 2);
             let deposit_dest_account = XcmMessageBuilder::default()
                 .set_next_hop(to_para)
                 .set_max_weight_limit()
-                .deposit_to_account(account, hashed)
+                .deposit_to_account(beneficiary, hashed)
                 .deposit_asset(local_dest_fee);
-            // Reserve transfer to `intermediary_hop` and deposit to the `dest_parachain`.
+
+            // Reserve transfer to `intermediary_hop` and deposit to the `to_para`.
             let reserve_transfer_to_intermediary_hop = XcmMessageBuilder::default()
                 .set_next_hop(HYDRATION)
                 .send_to(intermediary_hop)
                 .set_max_weight_limit()
                 .deposit_to_parachain(to_para)
-                .reserve_transfer(amount, deposit_dest_account);
+                .reserve_transfer(amount_in, deposit_dest_account);
 
             // Swap tokens on `HYDRATION` and then reserve transfer to `intermediary_hop`.
-            let swap_on_hydration = Xcm::builder_unsafe()
-                .buy_execution(fees, WeightLimit::Unlimited)
-                .exchange_asset(give.into(), want_asset.into(), is_sell)
-                .build();
+            let swap_on_hydration =
+                XcmMessageBuilder::default().buy(asset_in, asset_out, amount_in, max_amount_out);
 
-            // Transfer from `from_parachain` to `intermediary_hop` and deposit to `HYDRATION`.
+            // Transfer from `from_para` to `intermediary_hop` and deposit to `HYDRATION`.
             let message = XcmMessageBuilder::default()
                 .set_next_hop(from_para)
                 .send_to(intermediary_hop)
                 .set_max_weight_limit()
                 .deposit_to_parachain(HYDRATION)
                 .reserve_transfer(
-                    amount,
+                    amount_in,
                     Xcm([swap_on_hydration.0, reserve_transfer_to_intermediary_hop.0].concat()),
                 );
 
             api::xcm::execute(&VersionedXcm::V4(Xcm([
-                [WithdrawAsset(native_asset(amount).into())].to_vec(),
+                [WithdrawAsset(native_asset(amount_in).into())].to_vec(),
                 message.0,
             ]
             .concat()
