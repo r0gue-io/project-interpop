@@ -45,7 +45,12 @@ impl XcmMessageBuilder {
     }
 
     pub fn set_max_weight_limit(&mut self) -> &mut Self {
-        self.weight_limit = Limited(Weight::MAX);
+        self.weight_limit = WeightLimit::Unlimited;
+        self
+    }
+
+    pub fn set_weight_limit(&mut self, ref_time: u64, proof_size: u64) -> &mut Self {
+        self.weight_limit = WeightLimit::Limited(Weight::from_parts(ref_time, proof_size));
         self
     }
 
@@ -111,21 +116,20 @@ impl XcmMessageBuilder {
             .build()
     }
 
-    pub fn buy(
+    pub fn exchange_asset(
         &mut self,
-        asset_in: u128,
-        asset_out: u128,
-        amount_out: u128,
-        max_amount_in: u128,
-        fee: u128,
+        give_asset: Asset,
+        want_asset: Asset,
+        is_sell: bool,
     ) -> Xcm<()> {
-        let give_asset: Asset = asset(asset_in, max_amount_in);
-        let want_asset: Asset = asset(asset_out, amount_out);
-        let native = native_asset(fee);
+        let fee = fee_amount(&give_asset, 3);
+        let give: AssetFilter = Definite(give_asset.into());
+        let want: Assets = want_asset.into();
         Xcm::builder_unsafe()
             // Purchase execition using the native asset HDX.
-            .buy_execution(native, self.weight_limit.clone())
-            .exchange_asset(give_asset.into(), want_asset.into(), false)
+            .withdraw_asset(fee.clone().into())
+            .buy_execution(fee.into(), self.weight_limit.clone())
+            .exchange_asset(give, want, is_sell)
             .build()
     }
 
@@ -175,16 +179,6 @@ pub(crate) fn fee_amount(asset: &Asset, div_by: u128) -> Asset {
 
 pub(crate) fn para(id: u32) -> Location {
     Location::new(1, Parachain(id))
-}
-
-pub(crate) fn asset(id: u128, amount: u128) -> Asset {
-    Asset {
-        id: AssetId(Location {
-            parents: 0,
-            interior: Junctions::from([GeneralIndex(id)]),
-        }),
-        fun: amount.into(),
-    }
 }
 
 pub(crate) fn native_asset(amount: u128) -> Asset {
