@@ -127,7 +127,7 @@ impl XcmMessageBuilder {
         let want: Assets = want_asset.into();
         Xcm::builder_unsafe()
             // Purchase execition using the native asset HDX.
-            .withdraw_asset(fee.clone().into())
+            // .withdraw_asset(fee.clone().into())
             .buy_execution(fee.into(), self.weight_limit.clone())
             .exchange_asset(give, want, is_sell)
             .build()
