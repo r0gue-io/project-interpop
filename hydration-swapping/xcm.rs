@@ -49,11 +49,6 @@ impl XcmMessageBuilder {
         self
     }
 
-    pub fn set_weight_limit(&mut self, ref_time: u64, proof_size: u64) -> &mut Self {
-        self.weight_limit = WeightLimit::Limited(Weight::from_parts(ref_time, proof_size));
-        self
-    }
-
     pub fn deposit_to_account(&mut self, account: AccountId, hashed: bool) -> &mut Self {
         self.deposited_location = Some(DepositedLocation::Account(if hashed {
             hashed_account(self.current_hop(), account)
@@ -118,19 +113,24 @@ impl XcmMessageBuilder {
 
     pub fn exchange_asset(
         &mut self,
-        give_asset: Asset,
-        want_asset: Asset,
+        give: Asset,
+        want: Asset,
         is_sell: bool,
+        fees: Asset,
     ) -> Xcm<()> {
-        let fee = fee_amount(&give_asset, 3);
-        let give: AssetFilter = Definite(give_asset.into());
-        let want: Assets = want_asset.into();
-        Xcm::builder_unsafe()
-            // Purchase execition using the native asset HDX.
-            // .withdraw_asset(fee.clone().into())
-            .buy_execution(fee.into(), self.weight_limit.clone())
-            .exchange_asset(give, want, is_sell)
-            .build()
+        let give: AssetFilter = Definite(give.into());
+        let want = want.into();
+        let weight_limit = Limited(Weight::from_parts(u64::MAX, u64::MAX));
+        // executed on remote (on hydra)
+        Xcm([
+            BuyExecution { fees, weight_limit },
+            ExchangeAsset {
+                give,
+                want,
+                maximal: is_sell,
+            },
+        ]
+        .to_vec())
     }
 
     fn dest_chain(&self) -> Location {

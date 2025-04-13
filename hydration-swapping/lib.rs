@@ -45,14 +45,20 @@ mod hydration_swapping {
 
         /// Swap PASEO tokens on Hydration.
         #[ink(message, payable)]
-        pub fn swap_on_hydration(
+        pub fn swaap_usdt_on_hydration(
             &mut self,
             beneficiary: AccountId,
             amount_out: u128,
             max_amount_in: u128,
-            swap_ref_time: u64,
-            swap_proof_size: u64,
+            fee_amount: u128,
         ) -> Result<()> {
+            let fee = Asset {
+                id: AssetId(Location {
+                    parents: 1,
+                    interior: Here,
+                }),
+                fun: fee_amount.into(),
+            };
             // Relaychain native token - PASEO
             let give = Asset {
                 id: AssetId(Location {
@@ -74,16 +80,7 @@ mod hydration_swapping {
                 }),
                 fun: amount_out.into(),
             };
-            self.transfer_and_deposit_to_hydra(
-                POP,
-                ASSET_HUB,
-                give,
-                want,
-                false,
-                beneficiary,
-                swap_ref_time,
-                swap_proof_size,
-            )
+            self.transfer_and_deposit_to_hydra(POP, ASSET_HUB, give, want, false, fee, beneficiary)
         }
 
         #[ink(message, payable)]
@@ -94,22 +91,21 @@ mod hydration_swapping {
             give: Asset,
             want: Asset,
             is_sell: bool,
+            fee: Asset,
             beneficiary: AccountId,
-            swap_ref_time: u64,
-            swap_proof_size: u64,
         ) -> Result<()> {
             let amount_out = self.env().transferred_value();
 
             // Swap tokens on `HYDRATION` and then reserve transfer to `intermediary_hop`.
             let swap_on_hydration = XcmMessageBuilder::default()
-                .set_weight_limit(swap_ref_time, swap_proof_size)
-                .exchange_asset(give, want, is_sell);
+                .set_max_weight_limit()
+                .exchange_asset(give, want, is_sell, fee);
 
             // Transfer from `from_para` to `intermediary_hop` and deposit to `HYDRATION`.
             let message = XcmMessageBuilder::default()
                 .set_next_hop(from_para)
-                .send_to(intermediary_hop)
                 .set_max_weight_limit()
+                .send_to(intermediary_hop)
                 .deposit_to_parachain(HYDRATION)
                 .reserve_transfer(
                     amount_out,
@@ -143,18 +139,18 @@ mod hydration_swapping {
             give: Asset,
             want: Asset,
             is_sell: bool,
+            fee: Asset,
             beneficiary: AccountId,
-            swap_ref_time: u64,
-            swap_proof_size: u64,
         ) -> Result<()> {
-            let reserve_transfer_fee = self.env().transferred_value();
-
+            let sent_asset = self.env().transferred_value();
             // Swap tokens on `HYDRATION` and then reserve transfer to `intermediary_hop`.
             let swap_on_hydration = XcmMessageBuilder::default()
-                .set_weight_limit(swap_ref_time, swap_proof_size)
-                .exchange_asset(give, want, is_sell);
+                .set_max_weight_limit()
+                .set_next_hop(intermediary_hop)
+                .exchange_asset(give, want, is_sell, fee);
+
             // Deposit the destination account on the local `to_para`.
-            let local_dest_fee = fee_amount(&native_asset(reserve_transfer_fee), 2);
+            let local_dest_fee = fee_amount(&native_asset(sent_asset), 2);
             let deposit_dest_account = XcmMessageBuilder::default()
                 .set_next_hop(to_para)
                 .set_max_weight_limit()
@@ -167,7 +163,7 @@ mod hydration_swapping {
                 .send_to(intermediary_hop)
                 .set_max_weight_limit()
                 .deposit_to_parachain(to_para)
-                .reserve_transfer(reserve_transfer_fee, deposit_dest_account);
+                .reserve_transfer(sent_asset, deposit_dest_account);
             self.transfer_and_execute_on_hydra(
                 from_para,
                 intermediary_hop,
