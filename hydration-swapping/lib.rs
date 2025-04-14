@@ -34,10 +34,8 @@ pub type Result<T> = core::result::Result<T, StatusCode>;
 
 #[ink::contract]
 mod hydration_swapping {
-
-    use xcm::{get_global_context, para};
-
     use super::*;
+    use xcm::{get_global_context, para};
 
     #[ink(storage)]
     #[derive(Default)]
@@ -109,15 +107,15 @@ mod hydration_swapping {
 
             let deposit_xcm = match dest {
                 DepositedLocation::ParachainAccount(para_id, beneficiary) => {
-                    let origin_context = get_global_context(HYDRATION);
                     // Deposit the destination account on the local `to_para`.
+                    let origin_context = get_global_context(HYDRATION);
                     let destination_fee = want_asset
                         .clone()
                         .reanchored(&para(para_id), &origin_context)
                         .expect("should reanchor");
                     XcmMessageBuilder::default()
                         .set_next_hop(HYDRATION)
-                        .send_to(para_id)
+                        .send_to(ASSET_HUB)
                         .set_max_weight_limit()
                         .deposit_to_account(beneficiary, false)
                         .reserve_transfer(

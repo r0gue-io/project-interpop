@@ -109,7 +109,7 @@ impl XcmMessageBuilder {
         let origin_context = get_global_context(self.current_hop());
         let reserve_fees = fee_asset
             .clone()
-            .reanchored(&self.dest_chain(), &origin_context)
+            .reanchored(&self.source_chain(), &origin_context)
             .expect("should reanchor");
         Xcm::builder_unsafe()
             .initiate_reserve_withdraw(
