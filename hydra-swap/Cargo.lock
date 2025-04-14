@@ -1137,7 +1137,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "hydration-swapping"
+name = "hydra-swap"
 version = "0.1.0"
 dependencies = [
  "ink",
