@@ -155,6 +155,9 @@ impl XcmMessageBuilder {
     }
 }
 
+/// Returns the hashed account ID for a given parachain ID and account ID.
+///
+/// The original `account_id` has a control over its `hashed_account` across the parachains.
 pub(crate) fn hashed_account(para_id: u32, account_id: AccountId) -> AccountId {
     let location = (
         b"SiblingChain",
@@ -176,9 +179,10 @@ pub(crate) fn fungible_amount(asset: &Asset) -> u128 {
     }
 }
 
-pub(crate) fn fee_amount(asset: &Asset, div_by: u128) -> Asset {
+/// Returns the fee amount for a given asset and divisor.
+pub(crate) fn fee_amount(asset: &Asset, divisor: u128) -> Asset {
     let amount = fungible_amount(asset)
-        .checked_div(div_by)
+        .checked_div(divisor)
         .expect("div 2 can't overflow; qed");
     Asset {
         fun: Fungible(amount),
@@ -186,14 +190,17 @@ pub(crate) fn fee_amount(asset: &Asset, div_by: u128) -> Asset {
     }
 }
 
+/// Returns the location of a parachain.
 pub(crate) fn para(id: u32) -> Location {
     Location::new(1, Parachain(id))
 }
 
+/// Returns the location of the native asset.
 pub(crate) fn native_asset(amount: u128) -> Asset {
     (Location::parent(), amount).into()
 }
 
+/// Returns the location of the local account.
 pub(crate) fn local_account(account: AccountId) -> Location {
     Location::new(
         0,
