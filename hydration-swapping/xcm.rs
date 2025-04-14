@@ -10,9 +10,19 @@ pub(crate) const ASSET_HUB: u32 = 1000;
 pub(crate) const HYDRATION: u32 = 2034;
 pub(crate) const POP: u32 = 4001;
 
+pub fn get_global_context(para: u32) -> Junctions {
+    Junctions::from([
+        Junction::GlobalConsensus(NetworkId::Polkadot),
+        Junction::Parachain(para),
+    ])
+}
+
+#[derive(Debug, PartialEq, Eq)]
+#[ink::scale_derive(Encode, Decode, TypeInfo)]
 pub enum DepositedLocation {
     Account(AccountId),
     Parachain(u32),
+    ParachainAccount(u32, AccountId),
 }
 
 pub(crate) struct XcmMessageBuilder {
@@ -90,21 +100,20 @@ impl XcmMessageBuilder {
         }
     }
 
-    pub fn reserve_transfer(&mut self, amount: u128, xcm: Xcm<()>) -> Xcm<()> {
-        let origin_context = Junctions::from([
-            Junction::GlobalConsensus(NetworkId::Polkadot),
-            Junction::Parachain(self.current_hop()),
-        ]);
-        // Balance of the contract caller.
-        let asset = native_asset(amount);
-        let reserve_fees = asset
+    pub fn reserve_transfer(
+        &mut self,
+        asset: AssetFilter,
+        fee_asset: Asset,
+        xcm: Xcm<()>,
+    ) -> Xcm<()> {
+        let origin_context = get_global_context(self.current_hop());
+        let reserve_fees = fee_asset
             .clone()
-            .reanchored(&self.source_chain(), &origin_context)
+            .reanchored(&self.dest_chain(), &origin_context)
             .expect("should reanchor");
-
         Xcm::builder_unsafe()
             .initiate_reserve_withdraw(
-                asset.clone().into(),
+                asset,
                 self.dest_chain(),
                 self.on_reserve_asset_deposited(reserve_fees, xcm),
             )
