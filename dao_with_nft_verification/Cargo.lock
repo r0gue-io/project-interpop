@@ -3720,7 +3720,7 @@ name = "nft-verifier"
 version = "0.1.0"
 dependencies = [
  "hex",
- "ink 5.1.1",
+ "ink 5.0.0",
  "ink_e2e",
  "pop-api",
  "sp-core",
