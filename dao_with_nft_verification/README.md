@@ -1,6 +1,4 @@
-# DAO with NFT Verification (Sub0 Conference)
-
-‼️This code does not compile and uses a special version of Pop Node. **So, this is just for demonstrative purposes.**
+# DAO with NFT Verification
 
 **Important Note**: This code was used for a conference presentation, and hence has some sharp edges. It is not secure code.
 For example, the NFT verification has a vulnerability where verifying the NFT on Asset Hub (AH) is insecure. This is because

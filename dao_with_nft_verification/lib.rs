@@ -10,7 +10,7 @@ use ink::{
 use pop_api::{
     messaging::{
         ismp::{self, Get, StorageValue},
-        Callback, MessageId, ParaId,
+        Callback, MessageId,
     },
     nonfungibles::{
         self, CollectionConfig, CollectionId, CollectionSetting, CollectionSettings, ItemId,
@@ -20,9 +20,11 @@ use pop_api::{
 };
 
 pub type Result<T> = core::result::Result<T, Error>;
+pub type ParaId = u32;
 
 #[derive(Debug, PartialEq, Eq)]
 #[ink::scale_derive(Encode, Decode, TypeInfo)]
+#[allow(clippy::cast_possible_truncation)]
 pub enum Error {
     StatusCode(u32),
     NotReady,
@@ -161,10 +163,10 @@ mod dao {
                     account,
                     self.collection_id,
                     item,
-                    MintWitness {
+                    Some(MintWitness {
                         owned_item: None,
                         mint_price: None,
-                    },
+                    }),
                 )?;
                 self.registered_items
                     .insert(verified_item, &RegistrationStatus::Used);
@@ -284,7 +286,7 @@ mod dao {
                 ),
             },
         };
-        let collection_id = nonfungibles::next_collection_id()?.unwrap_or_default();
+        let collection_id = nonfungibles::next_collection_id().unwrap_or_default();
         nonfungibles::create(owner, config)?;
         Ok(collection_id)
     }
