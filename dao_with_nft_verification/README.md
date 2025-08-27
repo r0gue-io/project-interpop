@@ -7,8 +7,7 @@ to the user anymore.
 
 # Guide for the Multichain DAO Smart Contract
 
-This guide provides an overview of an Ink! smart contract named `Dao`, designed to showcase cross-chain interactions using a hybrid messaging API that combines XCM and ISMP. The contract enables users to register NFTs (Non-Fungible Tokens) from another parachain, verify their ownership, and mint corresponding NFTs on the local chain. Additionally, it supports executing transactions on the other parachain via XCM. Below, you'll find detailed instructions on how to deploy and interact with this contract, along with explanations of its key functionalities.
-
+This guide provides an overview of an Ink! smart contract named `Dao`, designed to showcase cross-chain interactions the messaging API with ISMP. The contract enables users to register NFTs (Non-Fungible Tokens) from another parachain, verify their ownership, and mint corresponding NFTs on the local chain.
 ---
 
 <aside>
@@ -25,7 +24,6 @@ This a proof-of-concept presented at Sub0
 The `Dao` smart contract uses:
 
 - **NFT Registration and Verification**: Users can register NFTs from a specified parachain, verify their ownership, and mint equivalent NFTs on the local chain.
-- **Cross-Chain Transactions**: The contract allows execution of transactions on the target parachain using XCM.
 - **Register Callbacks:** The messaging API allows registering callbacks for automatically returning the response of the message.
 - **Event-Driven Feedback**: The contract emits events to notify users of key actions and their outcomes.
 
@@ -35,20 +33,37 @@ This contract leverages the `pop_api` crate for runtime interactions.
 
 ## 2. Setup
 
+Install the pop cli with relaying:
+```
+cargo install --git https://github.com/r0gue-io/pop-cli --branch interpop
+```
+
+Go to the master branch of Pop Network, build the node with ismp and launch a test network:
+```
+cargo build --release --features=ismp
+pop up network -f networks/testnet.toml
+```
 ### Deployment
 
-To deploy the `Dao` contract, you need to:
-
+Deploy the contract:
+```
+pop up -c new -u ws://127.0.0.1:9944 -v 100000000000000
+```
 - **Provide Sufficient Endowment**: Ensure the contract is deployed with enough funds, as the constructor transfers a portion of the endowment to the contract’s account on the destination parachain.
 - **Call the Constructor**: The `new()` constructor initializes the contract and performs the following actions:
     - Initializes an `NftVerifier` instance with a hardcoded parachain ID (`1000`) and collection ID (`0`) for verifying NFTs.
     - Creates a new NFT collection on the local chain using the `nonfungibles` API.
-    - Transfers 10% of the endowment (via `env().transferred_value() / 10`) as a reserve asset to the contract’s account on the destination parachain (parachain `1000`) using XCM. The asset transferred is the native token of the parent chain (`Location::parent()`).
-
+ 
 ### Configuration
 
 - **Parachain and Collection IDs**: The `NftVerifier` uses a hardcoded parachain ID of `1000` and collection ID of `0`. If your use case requires different values, modify the `NftVerifier::new(1000, 0)` call in the constructor.
-- **Asset Specification**: The reserve transfer assumes the parent chain’s native token. Adjust the `asset` definition in the constructor if you need to transfer a different asset.
+
+To create collection `0` and mint a item `1` on Asset Hub use:
+```
+pop call chain --pallet Nfts --function create --args "Id(15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5)" "{settings: 0, max_supply: None(), mint_settings: {mint_type: Issuer(), price: None(), start_block: None(), end_block: None(), default_item_settings: 0}}" --url ws://127.0.0.1:9977/ --suri //Alice
+
+pop call chain --pallet Nfts --function create --args "Id(15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5)" "{settings: 0, max_supply: None(), mint_settings: {mint_type: Issuer(), price: None(), start_block: None(), end_block: None(), default_item_settings: 0}}" --url ws://127.0.0.1:9977/ --suri //Alice
+```
 
 ---
 
@@ -56,6 +71,11 @@ To deploy the `Dao` contract, you need to:
 
 ### Function: `register(height: u32, item: ItemId)`
 
+To register with NFT item ID `1` at block height `1000`:
+
+```
+pop call contract --contract 5GLUXEDyR7DqsA2FFpFsBcGBa2G4n8jJwPqebt9LTEDhgfM9 --message register --args "69", "1" --url ws://localhost:9944/ --suri //Alice --execute
+```
 - **Purpose**: Initiates the verification of an NFT’s ownership on the target parachain (ID `1000`).
 - **Parameters**:
     - `height: u32`: The block height at which to query the NFT ownership on the other parachain.
@@ -66,15 +86,24 @@ To deploy the `Dao` contract, you need to:
     - The registration status for the `item` is set to `Pending` in the `registered_items` mapping.
 - **Events**: Emits a `RegistrationRequested` event with the caller’s `AccountId` and the `ItemId`.
 
-### Usage Example
-
-To register an NFT with ID `42` at block height `1000`:
-
-- Call `register(1000, 42)` from your account.
-
+The event should look like:
+```
+Event Ismp ➜ Request
+│           dest_chain: Polkadot(1000)
+│           source_chain: Polkadot(4001)
+│           request_nonce: 0
+│           commitment: 0x2bdb91ce388cbcbb9beb74e7be22599da1c9c46c468b45b600b245bb3a11a446
 ---
+```
 
 ## 4. Completing Registration
+
+Now use the Pop CLI to relay the message with the commitment from above event:
+```
+pop relay get --source ws://127.0.0.1:9944 --dest ws://127.0.0.1:9977 --commitment 0x2bdb91ce388cbcbb9beb74e7be22599da1c9c46c468b45b600b245bb3a11a446
+```
+
+This should then call into `complete_registration`
 
 ### Callback: `complete_registration(id: MessageId, values: Vec<StorageValue>)`
 
@@ -96,85 +125,3 @@ To register an NFT with ID `42` at block height `1000`:
 
 - Success: A new NFT is minted, and you receive a membership token.
 - Failure: No NFT is minted (e.g., if the NFT isn’t owned by the caller at the specified height).
-
----
-
-## 5. Executing Transactions
-
-### Function: `transact(call: Vec<u8>)`
-
-- **Purpose**: Sends an XCM to execute a transaction on the target parachain (ID `1000`).
-- **Parameters**:
-    - `call: Vec<u8>`: The encoded call data to execute on the target parachain.
-- **Process**:
-    - Constructs an XCM message that:
-        - Withdraws fees from the parent chain’s native token.
-        - Buys execution on the target parachain.
-        - Executes the provided `call` with a weight of `500,000,000` ref-time and `500,000` proof-size.
-        - Sets up a query to receive the transaction’s result, with a callback to `process_transfer_result`.
-    - Sends the XCM message and records the request in `next_request`.
-- **Events**: Emits an `XcmRequested` event with the request `id`, `query_id`, and XCM `hash`.
-
-### Usage Example
-
-To execute a call on parachain `1000`:
-
-- Prepare the encoded call data (e.g., `0x1234...`) and call `transact(call_data)`.
-
----
-
-## 6. Processing Transfer Results
-
-### Callback: `process_transfer_result(id: MessageId, response: Response)`
-
-- **Selector**: `0x641b0b03`
-- **Purpose**: Handles the response from the XCM transaction executed via `transact`.
-- **Parameters**:
-    - `id: MessageId`: The ID of the transaction request.
-    - `response: Response`: The response from the target parachain.
-- **Process**:
-    - If the response indicates success (`Response::DispatchResult(MaybeErrorCode::Success)`), emits a `TransferCompleted` event.
-    - Other responses (e.g., errors) are currently ignored but could be extended for additional handling.
-- **Events**: Emits `TransferCompleted` on success.
-
----
-
-## 7. Events
-
-The contract emits the following events to provide feedback:
-
-- **`RegistrationRequested`**
-    - **Fields**: `{ account: AccountId, item: ItemId }`
-    - **When**: Emitted when an NFT registration is requested.
-- **`RegistrationCompleted`**
-    - **Fields**: `{ account: AccountId, verified_item: ItemId, membership: Option<ItemId> }`
-    - **When**: Emitted when the verification process completes, indicating whether a membership NFT was minted.
-- **`TransferCompleted`**
-    - **Fields**: None
-    - **When**: Emitted when an XCM transaction succeeds.
-- **`XcmRequested`**
-    - **Fields**: `{ id: MessageId, query_id: QueryId, hash: XcmHash }`
-    - **When**: Emitted when an XCM message is sent, providing tracking details.
-
----
-
-## 8. Helper Functions
-
-These internal functions support the contract’s operations:
-
-- **`create_collection(owner: AccountId)`**: Creates a new NFT collection with transferable items disabled and issuer-only minting.
-- **`generate_key(account: AccountId, collection_id: u32, item_id: u32)`**: Generates a storage key for querying NFT ownership in the `Account` storage map on the target parachain.
-- **`blake2_128_concat(input: &[u8])`**: Hashes input using `Blake2x128` and concatenates it with the original input.
-- **`hashed_account(para_id: u32, account_id: AccountId)`**: Computes the account’s representation on another parachain.
-
----
-
-## Additional Considerations
-
-- **Parachain and Collection IDs**: Hardcoded to `1000` and `0`. Modify the code if your setup differs.
-- **Storage Key Generation**: The `generate_key` function assumes a specific storage layout (e.g., the `Account` map in the NFTs pallet). Verify compatibility with your target parachain.
-- **Asset Transfers**: The constructor uses the parent chain’s native token. Adjust if using a different asset.
-- **Weights and Fees**: Fixed weights (e.g., `500,000,000` for `transact`) and fees (e.g., 1% of balance) may need tuning based on actual costs.
-- **Error Handling**: The contract defines an `Error` enum (e.g., `StatusCode`, `NotReady`). Handle these errors in your application logic.
-
----
