@@ -73,8 +73,9 @@ pop call chain --pallet Nfts --function create --args "Id(15oF4uVJwmo4TdGW7VfQxN
 
 To register with NFT item ID `1` at block height `1000`:
 
+Use the contract address the Pop CLI returned after successfully deploying the contract.
 ```
-pop call contract --contract 5GLUXEDyR7DqsA2FFpFsBcGBa2G4n8jJwPqebt9LTEDhgfM9 --message register --args "69", "1" --url ws://localhost:9944/ --suri //Alice --execute
+pop call contract --contract <CONTRACT_ADDRESS> --message register --args "69", "1" --url ws://localhost:9944/ --suri //Alice --execute
 ```
 - **Purpose**: Initiates the verification of an NFT’s ownership on the target parachain (ID `1000`).
 - **Parameters**:
